@@ -40,6 +40,9 @@
 
 #include <depth_image_proc/depth_traits.h>
 
+#include "apriltag_ros/AprilTagDetection.h"
+#include "apriltag_ros/AprilTagDetectionArray.h"
+
 
 namespace turtlebot_follower
 {
@@ -59,7 +62,7 @@ public:
    */
   TurtlebotFollower() : min_y_(0.1), max_y_(0.5),
                         min_x_(-0.2), max_x_(0.2),
-                        max_z_(0.8), goal_z_(0.6),
+                        max_z_(5.0), goal_z_(0.5),
                         z_scale_(1.0), x_scale_(5.0)
   {
 
@@ -110,7 +113,7 @@ private:
     cmdpub_ = private_nh.advertise<geometry_msgs::Twist> ("cmd_vel", 1);
     markerpub_ = private_nh.advertise<visualization_msgs::Marker>("marker",1);
     bboxpub_ = private_nh.advertise<visualization_msgs::Marker>("bbox",1);
-    sub_= nh.subscribe<sensor_msgs::Image>("depth/image_rect", 1, &TurtlebotFollower::imagecb, this);
+    sub_ = nh.subscribe<apriltag_ros::AprilTagDetectionArray>("/tag_detections", 1, &TurtlebotFollower::imagecb, this);
 
     switch_srv_ = private_nh.advertiseService("change_state", &TurtlebotFollower::changeModeSrvCb, this);
 
@@ -139,62 +142,62 @@ private:
    * Publishes cmd_vel messages with the goal from the image.
    * @param cloud The point cloud message.
    */
-  void imagecb(const sensor_msgs::ImageConstPtr& depth_msg)
+
+  double timeOfStop = 0, timeOfStart = 0;
+  double timeStopped = 0, timeMoving = 0;
+  int startup = 1;
+
+  void imagecb(const apriltag_ros::AprilTagDetectionArray::ConstPtr& depth_msg)
   {
+    int n = 0;
 
-    // Precompute the sin function for each row and column
-    uint32_t image_width = depth_msg->width;
-    float x_radians_per_pixel = 60.0/57.0/image_width;
-    float sin_pixel_x[image_width];
-    for (int x = 0; x < image_width; ++x) {
-      sin_pixel_x[x] = sin((x - image_width/ 2.0)  * x_radians_per_pixel);
-    }
+    float x = 0;
+    float y = 0;
+    float z = 0;
 
-    uint32_t image_height = depth_msg->height;
-    float y_radians_per_pixel = 45.0/57.0/image_width;
-    float sin_pixel_y[image_height];
-    for (int y = 0; y < image_height; ++y) {
-      // Sign opposite x for y up values
-      sin_pixel_y[y] = sin((image_height/ 2.0 - y)  * y_radians_per_pixel);
-    }
+    double currentTime;
 
-    //X,Y,Z of the centroid
-    float x = 0.0;
-    float y = 0.0;
-    float z = 1e6;
-    //Number of points observed
-    unsigned int n = 0;
+    // checking that a tag has been detected
+    n = depth_msg->detections.size();
 
-    //Iterate through all the points in the region and find the average of the position
-    const float* depth_row = reinterpret_cast<const float*>(&depth_msg->data[0]);
-    int row_step = depth_msg->step / sizeof(float);
-    for (int v = 0; v < (int)depth_msg->height; ++v, depth_row += row_step)
+    // can delete later
+    ROS_INFO("Number of tags detected: %d", n);
+    ROS_INFO_THROTTLE(1, "The max z is %f and the goal_z is %f", max_z_, goal_z_);
+    ROS_INFO_THROTTLE(1, "The z_scale is %f and the x_scale is %f", z_scale_, x_scale_);
+
+    if (n>0)
     {
-     for (int u = 0; u < (int)depth_msg->width; ++u)
-     {
-       float depth = depth_image_proc::DepthTraits<float>::toMeters(depth_row[u]);
-       if (!depth_image_proc::DepthTraits<float>::valid(depth) || depth > max_z_) continue;
-       float y_val = sin_pixel_y[v] * depth;
-       float x_val = sin_pixel_x[u] * depth;
-       if ( y_val > min_y_ && y_val < max_y_ &&
-            x_val > min_x_ && x_val < max_x_)
-       {
-         x += x_val;
-         y += y_val;
-         z = std::min(z, depth); //approximate depth as forward.
-         n++;
-       }
-     }
-    }
+      // Checks if the turtlebot has been stopped for at least 1 second or is first starting up
+      // If so, plays sound indicating start of movement
+      if (timeStopped > 1 || startup == 1)
+      {
+        // Add code for sound to play on starting here
+        // Would only play once upon starting not while moving
 
-    //If there are points, find the centroid and calculate the command goal.
-    //If there are no points, simply publish a stop goal.
-    if (n>4000)
-    {
-      x /= n;
-      y /= n;
+        startup = 0;
+      }
+
+      // If turtlebot was previously stopped, resets stopped time and records timeOfStart
+      if (timeStopped != 0){
+        timeStopped = 0;
+        timeOfStart = (depth_msg->header.stamp.sec) + (depth_msg->header.stamp.nsec)*1e-9;
+      }
+
+      // updates time turtlbot has been moving
+      currentTime = (depth_msg->header.stamp.sec) + (depth_msg->header.stamp.nsec)*1e-9;
+      timeMoving = currentTime - timeOfStart;
+
+      // getting average x, y, and z coordinates relative to the camera of all the tags detected from tag_detection topic
+      for (int i=0; i<n; i++)
+      {
+        x += (depth_msg->detections[i].pose.pose.pose.position.x)/n;
+        y += (depth_msg->detections[i].pose.pose.pose.position.y)/n;
+        z += (depth_msg->detections[i].pose.pose.pose.position.z)/n;
+      }
+
+      // stops the robot because the tags deteceted are too far away
       if(z > max_z_){
-        ROS_INFO_THROTTLE(1, "Centroid too far away %f, stopping the robot", z);
+        ROS_INFO_THROTTLE(1, "Average tag center is too far away %f, stopping the robot", z);
         if (enabled_)
         {
           cmdpub_.publish(geometry_msgs::TwistPtr(new geometry_msgs::Twist()));
@@ -202,9 +205,10 @@ private:
         return;
       }
 
-      ROS_INFO_THROTTLE(1, "Centroid at %f %f %f with %d points", x, y, z, n);
+      ROS_INFO_THROTTLE(1, "Average tag center is at %f %f %f with %d tags", x, y, z, n);
       publishMarker(x, y, z);
 
+      // publishes the new velocity commands
       if (enabled_)
       {
         geometry_msgs::TwistPtr cmd(new geometry_msgs::Twist());
@@ -215,12 +219,48 @@ private:
     }
     else
     {
-      ROS_INFO_THROTTLE(1, "Not enough points(%d) detected, stopping the robot", n);
+      ROS_INFO_THROTTLE(1, "No tags detected(%d), stopping the robot", n);
       publishMarker(x, y, z);
 
+      // Checks if the turtlebot has been moving for 1 second
+      // If so, plays sound indicating stopping of movement
+      if (timeMoving > 1)
+      {
+        // Add code for sound to play on stopping here
+        // Would only play once upon stopping not while stopped
+      }
+
+      // If turtlebot was previously moving, resets moving time and records timeOfStop
+      if (timeMoving != 0)
+      {
+        timeMoving = 0;
+        timeOfStop = (depth_msg->header.stamp.sec) + (depth_msg->header.stamp.nsec)*1e-9;
+      }
+
+      // updates time turtlebot has been stopped
+      currentTime = (depth_msg->header.stamp.sec) + (depth_msg->header.stamp.nsec)*1e-9;
+      timeStopped = currentTime - timeOfStop;
+
+      // splits stopped time into seconds and nanoseconds
+      double timeStoppedSec, timeStoppedNsec;
+      timeStoppedNsec = modf(timeStopped, &timeStoppedSec);
+
+      ROS_INFO("Current time is %f, time of stop is %f, and time stopped is %f", currentTime, timeOfStop, timeStopped);
       if (enabled_)
       {
-        cmdpub_.publish(geometry_msgs::TwistPtr(new geometry_msgs::Twist()));
+        // if turtlebot has been stopped more than five seconds start slowly spinning
+        // timeStoppedNsec term cause robot to spin for portions of a second and stop the rest of the time
+        // the intermittent motion allows the turtlebot to better register April tags
+        if (timeStopped >= 5 && timeStoppedNsec < 0.5)
+        {
+          geometry_msgs::TwistPtr cmd(new geometry_msgs::Twist());
+          cmd->angular.z = 0.5;
+          cmdpub_.publish(cmd);
+        }
+        else
+        {
+          cmdpub_.publish(geometry_msgs::TwistPtr(new geometry_msgs::Twist()));
+        }
       }
     }
 
