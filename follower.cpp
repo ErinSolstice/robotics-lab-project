@@ -169,12 +169,11 @@ private:
     // checking that a tag has been detected
     n = depth_msg->detections.size();
 
-    //ROS_INFO_THROTTLE(1, "Number of tags detected: %d", n);
-    ROS_INFO("Number of tags detected: %d", n);
+    ROS_INFO_THROTTLE(1, "Number of tags detected: %d", n);
 
     if (n>0)
     {
-      // Checks if the turtlebot has been stopped for at least 1 second or is first starting up
+      // Checks if the turtlebot has been stopped for at least a shortPause
       // If so, plays sound indicating start of movement
       if (timeStopped > shortPause and timeMoving > shortPause)
       {
@@ -183,27 +182,27 @@ private:
 	soundPlay->value = 6;
 	soundpub_.publish(soundPlay);
       }
+
+      // initializes timeOfStart if the robot has just booted up
       if (timeMoving < 0)
       {
         timeOfStart = (depth_msg->header.stamp.sec) + (depth_msg->header.stamp.nsec)*1e-9;
       }
-      // If turtlebot was previously stopped, resets stopped time and records timeOfStart
+      // If turtlebot was previously stopped and the timeMoving counter is 0, updates timeOfStart
       if (timeStopped != 0 and timeMoving == 0)
       {
         timeOfStart = (depth_msg->header.stamp.sec) + (depth_msg->header.stamp.nsec)*1e-9;
-	ROS_INFO("If 1 activated timeOfStart: %f, time stopped was %f and time moving is %f", timeOfStart, timeStopped, timeMoving);
       }
+      // Only resets time stopped if the robot has been moving for at least a shortPause
       else if (timeStopped != 0 and timeMoving > shortPause)
       {
         timeStopped = 0;
-
-	ROS_INFO("If 2.1 activated timeOfStart: %f, time stopped was %f and time moving is %f", timeOfStart, timeStopped, timeMoving);
       }
 
       // updates time turtlbot has been moving
       currentTime = (depth_msg->header.stamp.sec) + (depth_msg->header.stamp.nsec)*1e-9;
       timeMoving = currentTime - timeOfStart + 1e-5;
-      ROS_INFO("currentTime: %f, timeOfStart: %f, and timeMoving: %f", currentTime, timeOfStart, timeMoving);
+      ROS_INFO_THROTTLE(1, "currentTime: %f, timeOfStart: %f, and timeMoving: %f", currentTime, timeOfStart, timeMoving);
 
       // getting average x, y, and z coordinates relative to the camera of all the tags detected from tag_detection topic
       for (int i=0; i<n; i++)
@@ -213,7 +212,7 @@ private:
         z += (depth_msg->detections[i].pose.pose.pose.position.z)/n;
       }
 
-      // stops the robot because the tags deteceted are too far away
+      // stops the robot because the tags detected are too far away
       if(z > max_z_){
         ROS_INFO_THROTTLE(1, "Average tag center is too far away %f, stopping the robot", z);
         if (enabled_)
@@ -240,9 +239,8 @@ private:
       ROS_INFO_THROTTLE(1, "No tags detected(%d), stopping the robot", n);
       publishMarker(x, y, z);
 
-      // Checks if the turtlebot has been moving for 1 second
+      // Checks if the turtlebot has been moving for at least a shortPause
       // If so, plays sound indicating stopping of movement
-      // If turtlebot was previously moving, resets moving time and records timeOfStop
       if (timeMoving > shortPause and timeStopped > shortPause)
       {
 	ROS_INFO("Playing sound, time moving was %f and time stopped is %f", timeMoving, timeStopped);
@@ -251,34 +249,33 @@ private:
 	soundpub_.publish(soundPlay);
       }
 
+      // initializes timeOfStop if the robot has just booted up
       if (timeStopped < 0)
       {
         timeOfStop = (depth_msg->header.stamp.sec) + (depth_msg->header.stamp.nsec)*1e-9;
       }
+      // If turtlebot was previously moving and the timeStopped counter is 0, updates timeOfStop
       if (timeMoving != 0 and timeStopped == 0)
       {
         timeOfStop = (depth_msg->header.stamp.sec) + (depth_msg->header.stamp.nsec)*1e-9;
-	ROS_INFO("If 1 activated timeOfStop: %f, time moving was %f and time stopped is %f", timeOfStop, timeMoving, timeStopped);
       }
+      // Only resets time moving if the robot has been moving for at least a shortPause
       else if (timeMoving != 0 and timeStopped > shortPause)
       {
         timeMoving = 0;
-
-	ROS_INFO("If 2.1 activated timeOfStop: %f, time moving was %f and time stopped is %f", timeOfStop, timeMoving, timeStopped);
       }
       
 
       // updates time turtlebot has been stopped
       currentTime = (depth_msg->header.stamp.sec) + (depth_msg->header.stamp.nsec)*1e-9;
       timeStopped = currentTime - timeOfStop + 1e-5;
-      ROS_INFO("currentTime: %f, timeOfStop: %f, and timeStopped: %f", currentTime, timeOfStop, timeStopped);
 
       // splits stopped time into seconds and nanoseconds
+      // used for the incremental motion of the robot turning to find a new target
       double timeStoppedSec, timeStoppedNsec;
       timeStoppedNsec = modf(timeStopped, &timeStoppedSec);
 
-      ROS_INFO("Current time is %f, time of stop is %f, and time stopped is %f", currentTime, timeOfStop, timeStopped);
-      //ROS_INFO_THROTTLE(1, "Current time is %f, time of stop is %f, and time stopped is %f", currentTime, timeOfStop, timeStopped);
+      ROS_INFO_THROTTLE(1, "Current time is %f, time of stop is %f, and time stopped is %f", currentTime, timeOfStop, timeStopped);
       if (enabled_)
       {
         // if turtlebot has been stopped more than five seconds start slowly spinning
