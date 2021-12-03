@@ -34,7 +34,7 @@ Check to make sure the settings.yaml file lists the tag family that you plan to 
 For the tags.yaml file, add all the tag ids you want to detect and their sizes to the the standalone_tags portion.
 
 For our testing we used tag family: 36h11, tag id: 0, and size: 0.08m.\
-If you want to use the same settings you can simply replace the setting.yaml and tags.yaml files with the files of the same name located in this repository.
+If you want to use the same settings you can simply replace the setting.yaml and tags.yaml files with the files of the same name located in the apriltag_ros_config folder of this repository.
 However, you can select any other tag family or tag ids and the follower code will still function.
 
 
