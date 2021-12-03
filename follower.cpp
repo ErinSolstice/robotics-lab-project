@@ -166,7 +166,7 @@ private:
 
     double currentTime;
 
-    // checking that a tag has been detected
+    // checking how many tags have been detected
     n = depth_msg->detections.size();
 
     ROS_INFO_THROTTLE(1, "Number of tags detected: %d", n);
