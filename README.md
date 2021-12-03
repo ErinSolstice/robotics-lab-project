@@ -15,7 +15,7 @@ Compared to the original code this project has four major changes.
 The advantages in distractability and range both come from using AprilTags rather than a depth point cloud to determine the location of the object to follow.
 By using AprilTags the robot doesn't get distracted by other people or objects coming into its field of view. It can also pick up objects at further range because it just needs to pick up the tag rather than enough points to find a centroid.\
 The incremental rotation uses the timestamps of the tag_detections topic to determine time since the robot has last seen a tag.\
-The sounds that indicate stopping and starting of movement are the default turtlebot sounds.
+The sounds that indicate stopping and starting of movement are from the default turtlebot sounds. They are accessed by publishing to the /mobile_base/commands/sound topic.
 
 To modify the standard turtlebot package installation to run the improved follower code the following steps must be taken.
 
